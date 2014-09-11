@@ -9,8 +9,10 @@
 *.class
 
 # Generated files
-bin/
 gen/
+bin/
+ant-gen/
+ant-build/
 
 # Gradle files
 .gradle/
