@@ -38,7 +38,7 @@
             <block type="sumorobot_enemy"></block>
         </xml>
 
-        <div id="blockly-div" style="height: 310px;"></div>
+        <div id="blockly-div" style="height: 300px;"></div>
         <script type="text/javascript" src="cordova.js"></script>
         <script type="text/javascript" src="js/index.js"></script>
         <script type="text/javascript" src="js/blockly/blockly_compressed.js"></script>
@@ -58,16 +58,36 @@
                 toolbox: document.getElementById('toolbox')
             });
 
-            function callback() {
+            function program() {
                 cordova.exec(
                     function(winParam) { alert(winParam); },
                     function(error) { alert(error); },
                     "Compiler",
-                    "compile",
+                    "program",
                     [Blockly.Sumorobot.workspaceToCode()]
                 );
              }
+             function cancel() {
+                cordova.exec(
+                    function(winParam) { alert(winParam); },
+                    function(error) { alert(error); },
+                    "Compiler",
+                    "cancel",
+                    [""]
+                );
+             }
+             function download() {
+                cordova.exec(
+                    function(winParam) { alert(winParam); },
+                    function(error) { alert(error); },
+                    "Compiler",
+                    "download",
+                    [""]
+                );
+             }
         </script>
-        <input type="button" value="send" onclick="javascript:callback();" />
+        <input type="button" value="program" onclick="javascript:program();" style="width: 32%;" />
+        <input type="button" value="cancel" onclick="javascript:cancel();" style="width: 32%;" />
+        <input type="button" value="download" onclick="javascript:download();" style="width: 32%;" />
     </body>
 </html>
