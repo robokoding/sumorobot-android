@@ -38,7 +38,7 @@
             <block type="sumorobot_enemy"></block>
         </xml>
 
-        <div id="blockly-div" style="height: 310px;"></div>
+        <div id="blockly-div" style="height: 300px;"></div>
         <script type="text/javascript" src="cordova.js"></script>
         <script type="text/javascript" src="js/index.js"></script>
         <script type="text/javascript" src="js/blockly/blockly_compressed.js"></script>
@@ -58,16 +58,26 @@
                 toolbox: document.getElementById('toolbox')
             });
 
-            function callback() {
+            function connect() {
                 cordova.exec(
                     function(winParam) { alert(winParam); },
                     function(error) { alert(error); },
                     "Compiler",
-                    "compile",
+                    "program",
+                    [Blockly.Sumorobot.workspaceToCode()]
+                );
+             }
+             function disconnect() {
+                cordova.exec(
+                    function(winParam) { alert(winParam); },
+                    function(error) { alert(error); },
+                    "Compiler",
+                    "cancel",
                     [Blockly.Sumorobot.workspaceToCode()]
                 );
              }
         </script>
-        <input type="button" value="send" onclick="javascript:callback();" />
+        <input type="button" value="connect" onclick="javascript:connect();" style="width: 49%;" />
+        <input type="button" value="disconnect" onclick="javascript:disconnect();" style="width: 50%;" />
     </body>
 </html>
