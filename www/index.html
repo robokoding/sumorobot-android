@@ -47,47 +47,62 @@
         <script type="text/javascript" src="js/blockly/msg/js/en.js"></script>
         <script type="text/javascript">
             app.initialize();
-            document.addEventListener("deviceready", onDeviceReady, false);
+            /* will be called when phonegap is ready */
             function onDeviceReady() {
-                // do something
             }
-            /* Initialize blockly */
+            /* add deviceready listener */
+            document.addEventListener("deviceready", onDeviceReady, false);
+            /* initialize blockly */
             Blockly.inject(document.getElementById('blockly-div'), {
-                trashcan: true,
-                path: 'js/blockly/',
-                toolbox: document.getElementById('toolbox')
+                trashcan: true,                             // show the trashcan
+                path: "js/blockly/",                        // blockly's path
+                toolbox: document.getElementById('toolbox') // the toolbox element
             });
-
-            function program() {
+            /* asynchronous call to the backend plugin */
+            function async(action, arg) {
                 cordova.exec(
-                    function(winParam) { alert(winParam); },
-                    function(error) { alert(error); },
-                    "Compiler",
-                    "program",
-                    [Blockly.Sumorobot.workspaceToCode()]
+                    /* success function */
+                    function(message) {
+                        navigator.notification.alert(
+                            message,       // message
+                            function() {}, // callback
+                            "Message",     // title
+                            "OK"           // buttonName
+                        );
+                    },
+                    /* error fucntion */
+                    function(error) {
+                        navigator.notification.alert(
+                            error,         // message
+                            function() {}, // callback
+                            "Message",     // title
+                            "OK"           // buttonName
+                        );
+                    },
+                    "Compiler", // name of the plugin
+                    action,     // name of the action
+                    [arg]       // json arguments
                 );
-             }
-             function cancel() {
-                cordova.exec(
-                    function(winParam) { alert(winParam); },
-                    function(error) { alert(error); },
-                    "Compiler",
-                    "cancel",
-                    [""]
+            }
+            /* will be called when the user selected a Sumorobot to program */
+            function onConfirm(buttonIndex) {
+                /* notify backend which sumorobot was selected */
+                async("select", buttonIndex-1);
+            }
+            /* will be called from the backend plugin when bluetooth device descovery finished */
+            function showBluetoothDevices(devicesString) {
+                devices = devicesString.split(",");
+                window.navigator.notification.confirm(
+                    "Select your Sumorobot", // message
+                    onConfirm,               // callback to invoke with index of button pressed
+                    "Sumorobots",            // title
+                    devices                  // buttonLabels
                 );
-             }
-             function download() {
-                cordova.exec(
-                    function(winParam) { alert(winParam); },
-                    function(error) { alert(error); },
-                    "Compiler",
-                    "download",
-                    [""]
-                );
-             }
+            }
         </script>
-        <input type="button" value="program" onclick="javascript:program();" style="width: 32%;" />
-        <input type="button" value="cancel" onclick="javascript:cancel();" style="width: 32%;" />
-        <input type="button" value="download" onclick="javascript:download();" style="width: 32%;" />
+        <input type="button" value="program" onclick="javascript:async('program', Blockly.Sumorobot.workspaceToCode());" style="width: 24%;" />
+        <input type="button" value="cancel" onclick="javascript:async('cancel', '');" style="width: 24%;" />
+        <input type="button" value="download" onclick="javascript:async('download', '');" style="width: 24%;" />
+        <input type="button" value="search" onclick="javascript:async('search', '');" style="width: 24%;" />
     </body>
 </html>
