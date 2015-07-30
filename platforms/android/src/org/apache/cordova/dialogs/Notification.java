@@ -195,7 +195,7 @@ public class Notification extends CordovaPlugin {
                 AlertDialog.Builder dlg = new AlertDialog.Builder(cordova.getActivity(), AlertDialog.THEME_DEVICE_DEFAULT_LIGHT);
                 dlg.setMessage(message);
                 dlg.setTitle(title);
-                dlg.setCancelable(true);
+                dlg.setCancelable(false);
 
                 // First button
                 if (buttonLabels.length() > 0) {
@@ -359,15 +359,22 @@ public class Notification extends CordovaPlugin {
             this.spinnerDialog.dismiss();
             this.spinnerDialog = null;
         }
+        final Notification notification = this;
         final CordovaInterface cordova = this.cordova;
         Runnable runnable = new Runnable() {
             public void run() {
-                Notification.this.spinnerDialog = ProgressDialog.show(cordova.getActivity(), title, message, true, true,
+                notification.spinnerDialog = new ProgressDialog(cordova.getActivity(), AlertDialog.THEME_DEVICE_DEFAULT_LIGHT);
+                notification.spinnerDialog.setTitle(title);
+                notification.spinnerDialog.setMessage(message);
+                notification.spinnerDialog.setCancelable(false);
+                notification.spinnerDialog.setIndeterminate(true);
+                notification.spinnerDialog.setOnCancelListener(
                         new DialogInterface.OnCancelListener() {
                             public void onCancel(DialogInterface dialog) {
-                                Notification.this.spinnerDialog = null;
+                                notification.spinnerDialog = null;
                             }
                         });
+                notification.spinnerDialog.show();
             }
         };
         this.cordova.getActivity().runOnUiThread(runnable);
@@ -402,7 +409,7 @@ public class Notification extends CordovaPlugin {
                 notification.progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
                 notification.progressDialog.setTitle(title);
                 notification.progressDialog.setMessage(message);
-                notification.progressDialog.setCancelable(true);
+                notification.progressDialog.setCancelable(false);
                 notification.progressDialog.setMax(100);
                 notification.progressDialog.setProgress(0);
                 notification.progressDialog.setOnCancelListener(

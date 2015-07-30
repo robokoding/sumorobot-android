@@ -3,6 +3,7 @@ package com.robokoding.sumodroid.plugin;
 import java.net.URL;
 import java.io.File;
 import java.util.UUID;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,9 +18,12 @@ import java.io.FileNotFoundException;
 
 import android.util.Log;
 import android.os.Looper;
+import android.os.Environment;
 import android.content.Intent;
 import android.content.Context;
+import android.app.AlertDialog;
 import android.content.IntentFilter;
+import android.content.DialogInterface;
 import android.content.BroadcastReceiver;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
@@ -40,31 +44,38 @@ import org.apache.http.util.ByteArrayBuffer;
  */
 public class Compiler extends CordovaPlugin {
     /* app tag for log messages */
-    private static final String TAG = "Sumodroid";
+    private static final String TAG = "Compiler";
     /* define Arduino program layout */
-    private static final String arduinoEnd = "\n}\n";
-    private static final String arduinoSetupAndLoop = "void setup(){\nstart();\n}\n\nvoid loop(){\n";
-    private static final String arduinoLibraries = "#include <Servo.h>\n#include <Sumorobot.h>\n\n";
+    private static final String ARDUINO_END = "\n}\n";
+    private static final String ARDUINO_SETUP_LOOP = "void setup(){\nSerial.begin(115200);\n}\n\nvoid loop(){\n";
+    private static final String ARDUINO_LIBRARIES = "#include <Servo.h>\n#include <NewPing.h>\n#include <Sumorobot.h>\n\n";
     /* bluetooth stuff */
-    private OutputStream btOutStream = null;
-    private InputStream btInputStream = null;
-    private BluetoothSocket btSocket = null;
-    private BluetoothDevice btDevice = null;
-    private BluetoothAdapter btAdapter = null;
-    private static ArrayList<BluetoothDevice> btDevices;
-    private static String sumorobotAddress = "98:D3:31:B1:CA:BF";
+    private BluetoothSocket bluetoothSocket = null;
+    private BluetoothDevice bluetoothDevice = null;
+    private OutputStream bluetoothOutputStream = null;
+    private InputStream bluetoothInputStream = null;
+    private BluetoothAdapter bluetoothAdapter = null;
+    private static ArrayList<BluetoothDevice> bluetoothDevices;
+    private static String sumorobotAddress = "98:D3:31:B2:F4:A1";
+    private static final File EXTERNAL_STORAGE = Environment.getExternalStorageDirectory();
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
     @Override
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
         super.initialize(cordova, webView);
         try {
-            btDevices = new ArrayList<BluetoothDevice>();
+            bluetoothDevices = new ArrayList<BluetoothDevice>();
             /* initialize bluetooth connection */
             Log.d(TAG, "initializing bluetooth");
-            btAdapter = BluetoothAdapter.getDefaultAdapter();
-            btAdapter.cancelDiscovery();
-            btDevice = btAdapter.getRemoteDevice(sumorobotAddress);
+            bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+            /* when bluetooth is off */
+            if (!bluetoothAdapter.isEnabled()) {
+                /* turn on bluetooth */
+                Log.d(TAG, "turning on bluetooth");
+                bluetoothAdapter.enable();
+            }
+            /* cancel bluetooth discovery */
+            bluetoothAdapter.cancelDiscovery();
         } catch (Exception e) {
             Log.d(TAG, "bluetooth initialization error: " + e.getMessage());
         }
@@ -74,12 +85,13 @@ public class Compiler extends CordovaPlugin {
         try {
             Log.d(TAG, "connecting bluetooth");
             /* open a bluetooth socket */
-            btSocket = btDevice.createRfcommSocketToServiceRecord(MY_UUID);
+            bluetoothDevice = bluetoothAdapter.getRemoteDevice(sumorobotAddress);
+            bluetoothSocket = bluetoothDevice.createRfcommSocketToServiceRecord(MY_UUID);
             /* connect the bluetooths */
-            btSocket.connect();
+            bluetoothSocket.connect();
             /* open the input and output streams */
-            btOutStream = btSocket.getOutputStream();
-            btInputStream = btSocket.getInputStream();
+            bluetoothOutputStream = bluetoothSocket.getOutputStream();
+            bluetoothInputStream = bluetoothSocket.getInputStream();
         } catch (Exception e) {
             Log.d(TAG, "bluetooth connecting error: " + e.getMessage());
         }
@@ -89,10 +101,10 @@ public class Compiler extends CordovaPlugin {
         try {
             Log.d(TAG, "disconnecting bluetooth");
             /* close the input and output streams */
-            btOutStream.close();
-            btInputStream.close();
+            bluetoothOutputStream.close();
+            bluetoothInputStream.close();
             /* close the bluetooth socket */
-            btSocket.close();
+            bluetoothSocket.close();
         } catch (Exception e) {
             Log.d(TAG, "disconnecting bluetooth error: " + e.getMessage());
         }
@@ -101,7 +113,7 @@ public class Compiler extends CordovaPlugin {
     public void writeProgram(String uncompiledProgram) {
         try {
             /* the path to the Arduino sketch */
-            File file = new File("/sdcard/sumorobot/main.ino");
+            File file = new File(EXTERNAL_STORAGE, "sumodroid/main.ino");
             /* if file doesnt exists, then create it */
             if (!file.exists()) {
                 file.createNewFile();
@@ -121,12 +133,12 @@ public class Compiler extends CordovaPlugin {
         }
     }
 
-    private byte[] readProgram() {
+    private byte[] readProgram(String name) {
         byte[] compiledProgram = null;
         FileInputStream fis = null;
 
         try {
-            File file = new File("/sdcard/sumorobot/main.hex");
+            File file = new File(EXTERNAL_STORAGE, "sumodroid/" + name);
             /* every line, except last one, has has 45 bytes (including \r\n) */
             int programLines = (int) Math.ceil(file.length() / 45.0);
             /* every line has 32 bytes of program data (excluding checksums, addresses, etc.) */
@@ -156,7 +168,7 @@ public class Compiler extends CordovaPlugin {
                 line[lineIndex++] = (char) content;
                 /* when the line is complete */
                 if (content == 10) {
-                    /* take only the actual program data form the line */
+                    /* take only the actual program data from the line */
                     for (int index = 9; index < lineIndex - 4; index += 2) {
                         /* convert hexadecimals represented as chars into bytes */
                         compiledProgram[programIndex++] = Integer.decode("0x" + line[index] + line[index+1]).byteValue();
@@ -209,42 +221,42 @@ public class Compiler extends CordovaPlugin {
         try {
             Log.d(TAG, "syncing");
             for (int i = 0; i < 5; i++) {
-                btOutStream.write(0x30);
-                btOutStream.write(0x20);
+                bluetoothOutputStream.write(0x30);
+                bluetoothOutputStream.write(0x20);
                 Thread.sleep(50);
             }
 
             Log.d(TAG, "waiting for response");
-            int insync = btInputStream.read();
-            int ok = btInputStream.read();
+            int insync = bluetoothInputStream.read();
+            int ok = bluetoothInputStream.read();
             if (insync == 0x14 && ok == 0x10) {
                 Log.d(TAG, "insync");
             }
 
             Log.d(TAG, "reading major version");
-            btOutStream.write(0x41);
-            btOutStream.write(0x81);
-            btOutStream.write(0x20);
+            bluetoothOutputStream.write(0x41);
+            bluetoothOutputStream.write(0x81);
+            bluetoothOutputStream.write(0x20);
             Thread.sleep(50);
 
             Log.d(TAG, "waiting for response");
-            insync = btInputStream.read();
-            int major = btInputStream.read();
-            ok = btInputStream.read();
+            insync = bluetoothInputStream.read();
+            int major = bluetoothInputStream.read();
+            ok = bluetoothInputStream.read();
             if (insync == 0x14 && ok == 0x10) {
                 Log.d(TAG, "insync");
             }
 
             Log.d(TAG, "reading minor version");
-            btOutStream.write(0x41);
-            btOutStream.write(0x82);
-            btOutStream.write(0x20);
+            bluetoothOutputStream.write(0x41);
+            bluetoothOutputStream.write(0x82);
+            bluetoothOutputStream.write(0x20);
             Thread.sleep(50);
 
             Log.d(TAG, "waiting for response");
-            insync = btInputStream.read();
-            int minor = btInputStream.read();
-            ok = btInputStream.read();
+            insync = bluetoothInputStream.read();
+            int minor = bluetoothInputStream.read();
+            ok = bluetoothInputStream.read();
             if (insync == 0x14 && ok == 0x10) {
                 Log.d(TAG, "insync");
             }
@@ -252,27 +264,27 @@ public class Compiler extends CordovaPlugin {
             Log.d(TAG, "version: " + major + "." + minor);
 
             Log.d(TAG, "entering programming mode");
-            btOutStream.write(0x50);
-            btOutStream.write(0x20);
+            bluetoothOutputStream.write(0x50);
+            bluetoothOutputStream.write(0x20);
             Thread.sleep(50);
 
             Log.d(TAG, "waiting for response");
-            insync = btInputStream.read();
-            ok = btInputStream.read();
+            insync = bluetoothInputStream.read();
+            ok = bluetoothInputStream.read();
             if (insync == 0x14 && ok == 0x10) {
                 Log.d(TAG, "insync");
             }
 
             Log.d(TAG, "getting device signature");
-            btOutStream.write(0x75);
-            btOutStream.write(0x20);
+            bluetoothOutputStream.write(0x75);
+            bluetoothOutputStream.write(0x20);
             Thread.sleep(50);
 
             Log.d(TAG, "waiting for response");
-            insync = btInputStream.read();
+            insync = bluetoothInputStream.read();
             byte [] signature = new byte[3];
-            btInputStream.read(signature, 0, 3);
-            ok = btInputStream.read();
+            bluetoothInputStream.read(signature, 0, 3);
+            ok = bluetoothInputStream.read();
             if (insync == 0x14 && ok == 0x10) {
                 Log.d(TAG, "insync");
             }
@@ -288,15 +300,15 @@ public class Compiler extends CordovaPlugin {
                 address += 64;
 
                 Log.d(TAG, "loading page address");
-                btOutStream.write(0x55);
-                btOutStream.write(laddress);
-                btOutStream.write(haddress);
-                btOutStream.write(0x20);
+                bluetoothOutputStream.write(0x55);
+                bluetoothOutputStream.write(laddress);
+                bluetoothOutputStream.write(haddress);
+                bluetoothOutputStream.write(0x20);
                 //Thread.sleep(50);
 
                 Log.d(TAG, "waiting for response");
-                insync = btInputStream.read();
-                ok = btInputStream.read();
+                insync = bluetoothInputStream.read();
+                ok = bluetoothInputStream.read();
                 if (insync == 0x14 && ok == 0x10) {
                     Log.d(TAG, "insync");
                 }
@@ -307,19 +319,19 @@ public class Compiler extends CordovaPlugin {
                     size = 128;
                 }
                 Log.d(TAG, "programming page size: " + size + " haddress: " + haddress + " laddress: " + laddress);
-                btOutStream.write(0x64);
-                btOutStream.write(0x00);
-                btOutStream.write(size);
-                btOutStream.write(0x46);
+                bluetoothOutputStream.write(0x64);
+                bluetoothOutputStream.write(0x00);
+                bluetoothOutputStream.write(size);
+                bluetoothOutputStream.write(0x46);
                 for (int i = 0; i < size; i++) {
-                    btOutStream.write(compiledProgram[programIndex++]);
+                    bluetoothOutputStream.write(compiledProgram[programIndex++]);
                 }
-                btOutStream.write(0x20);
+                bluetoothOutputStream.write(0x20);
                 //Thread.sleep(50);
 
                 Log.d(TAG, "receiving sync ack");
-                insync = btInputStream.read();
-                ok = btInputStream.read();
+                insync = bluetoothInputStream.read();
+                ok = bluetoothInputStream.read();
 
                 if (insync == 0x14 && ok == 0x10) {
                     Log.d(TAG, "insync");
@@ -331,127 +343,179 @@ public class Compiler extends CordovaPlugin {
             }
 
             Log.d(TAG, "leaving programming mode");
-            btOutStream.write(0x51);
-            btOutStream.write(0x20);
+            bluetoothOutputStream.write(0x51);
+            bluetoothOutputStream.write(0x20);
             Thread.sleep(50);
 
             Log.d(TAG, "receiving sync ack");
-            insync = btInputStream.read();
-            ok = btInputStream.read();
+            insync = bluetoothInputStream.read();
+            ok = bluetoothInputStream.read();
 
             if (insync == 0x14 && ok == 0x10) {
                 Log.d(TAG, "insync");
             }
-
-            Log.d(TAG, "disconnect bluetooth");
         } catch (Exception e) {
             Log.d(TAG, "programming error: " + e.getMessage());
         }
     }
 
-    public void downloadFile(String remoteFile, String localFile) {  //this is the downloader method
-        try {
-                URL url = new URL(remoteFile);
-                File file = new File(localFile);
-
-                long startTime = System.currentTimeMillis();
-                Log.d(TAG, "download begining");
-                Log.d(TAG, "download url:" + url);
-                Log.d(TAG, "downloaded file name:" + localFile);
-                /* open a connection to that URL */
-                Log.d(TAG, "opening url");
-                URLConnection connection = url.openConnection();
-
-                /* if file doesnt exists, then create it */
-                if (!file.exists()) {
-                    file.createNewFile();
-                }
-                /* define InputStreams to read from the URLConnection */
-                Log.d(TAG, "getting url inputstream");
-                InputStream in = connection.getInputStream();
-                FileOutputStream fos = new FileOutputStream(file);
-
-                int length = 0;
-                int totalLength = 0;
-                byte[] buffer = new byte[1024];//1024, 4096, 65536, 1048576
-                int fileSize = connection.getContentLength();
-                Log.d(TAG, "staring reading and writing file");
-                /* read bytes to the buffer until there is nothing more to read (-1) */
-                while ((length = in.read(buffer, 0, 65536)) != -1) {
-                    fos.write(buffer, 0, length);
-                    totalLength += length;
-                    //progressBarStatus = (int)((totalLength / 70204818.0) * 100.0);
-                    Log.d(TAG, "read bytes: " + totalLength);
-                }
-                fos.close();
-                Log.d(TAG, "download ready in"
-                                + ((System.currentTimeMillis() - startTime) / 1000)
-                                + " sec");
-        } catch (Exception e) {
-                Log.d(TAG, "downloading file error: " + e.getMessage());
-        }
-    }
-
     private void startBluetoothDiscovery() {
-        // Register the BroadcastReceiver
-        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
-        cordova.getActivity().getApplicationContext().registerReceiver(mReceiver, filter); // Don't forget to unregister during onDestroy
+        /* clear previously found devices */
+        bluetoothDevices.clear();
+        /* register the BroadcastReceiver */
+        //IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+        //filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        //cordova.getActivity().getApplicationContext().registerReceiver(mReceiver, filter);
         Log.d(TAG, "starting to search bluetooth devices");
-        btAdapter.startDiscovery();
+        //bluetoothAdapter.startDiscovery();
+        /* notify frontend to stop showing activity */
+        //webView.sendJavascript("app.stopShowingActivity()");
+        /* add bonded devices */
+        bluetoothDevices.addAll(bluetoothAdapter.getBondedDevices());
+        int index = 0;
+        String[] bluetoothDeviceNames = new String[bluetoothDevices.size()];
+        for (BluetoothDevice device : bluetoothDevices) {
+            bluetoothDeviceNames[index++] = device.getName();
+        }
+        /* show bluetooth devices for selection */
+        AlertDialog.Builder alertDialog = new AlertDialog.Builder(cordova.getActivity(), AlertDialog.THEME_DEVICE_DEFAULT_LIGHT);
+        alertDialog.setCancelable(true);
+        alertDialog.setTitle("Please select your Sumorobot");
+        alertDialog.setItems(bluetoothDeviceNames, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int selectedIndex) {
+                sumorobotAddress = bluetoothDevices.get(selectedIndex).getAddress();
+                dialog.dismiss();
+            }
+        });
+        alertDialog.create();
+        alertDialog.show();
     }
 
-    // Create a BroadcastReceiver for ACTION_FOUND and ACTION_DISCOVERY_FINISHED
+    /* create a BroadcastReceiver for ACTION_FOUND and ACTION_DISCOVERY_FINISHED */
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            // When discovery finds a device
+            /* when discovery finds a device */
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-                // Get the BluetoothDevice object from the Intent
+                /* get the BluetoothDevice object from the Intent */
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                // Add the name and address to an array adapter to show in a ListView
+                /* add the name and address to an array adapter to show in a ListView */
                 if (device != null && device.getName() != null && device.getAddress() != null) {
-                    btDevices.add(device);
+                    bluetoothDevices.add(device);
                     Log.d(TAG, "found bluetooth device: " + device.getName());
                 }
+            /* when bluetooth discovery has finished */
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
-                btAdapter.cancelDiscovery();
+                bluetoothAdapter.cancelDiscovery();
                 Log.d(TAG, "bluetooth device search finished");
                 cordova.getActivity().getApplicationContext().unregisterReceiver(mReceiver);
+                /* also include all paired devices */
+                bluetoothDevices.addAll(bluetoothAdapter.getBondedDevices());
                 /* send the bluetooth device names to the web frontend */
-                String names = "";
-                for (BluetoothDevice device : btDevices) {
-                    names += device.getName() + ",";
+                int index = 0;
+                String[] bluetoothDeviceNames = new String[bluetoothDevices.size()];
+                for (BluetoothDevice device : bluetoothDevices) {
+                    bluetoothDeviceNames[index++] = device.getName();
                 }
-                webView.sendJavascript("showBluetoothDevices('" + names + "')");
+                /* notify frontend to stop showing activity */
+                webView.sendJavascript("app.stopShowingActivity()");
+                /* send the sumorobot names back to the frontend */
+                //webView.sendJavascript("app.showSumorobots('" + bluetoothDeviceNames + "')");
+                AlertDialog.Builder alertDialog = new AlertDialog.Builder(cordova.getActivity(), AlertDialog.THEME_DEVICE_DEFAULT_LIGHT);
+                alertDialog.setCancelable(true);
+                alertDialog.setTitle("Please select your Sumorobot");
+                alertDialog.setItems(bluetoothDeviceNames, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int selectedIndex) {
+                        sumorobotAddress = bluetoothDevices.get(selectedIndex).getAddress();
+                        dialog.dismiss();
+                    }
+                });
+                alertDialog.create();
+                alertDialog.show();
             }
         }
     };
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
-        if (action.equals("program")) {
+        if (action.equals("uploadProgram")) {
+            /* check if the compiler is installed */
+            File compiler = new File(EXTERNAL_STORAGE, "sumodroid/compiler");
+            if (!compiler.exists()) {
+                callbackContext.success("Please install the compiler first");
+                return true;
+            }
+            /* check if the user has selected a sumorobot */
+            if (sumorobotAddress.equals("")) {
+                callbackContext.success("Please select a sumorobot first");
+                return true;
+            }
+
             final String arduinoLoopContent = args.getString(0);
+            final boolean disconnectAfterUpload = args.getBoolean(1);
             new Thread(new Runnable() {
                 @Override
                 public void run() {
+                    /* notify frontend to start showing activity */
+                    //webView.sendJavascript("app.startShowingActivity('Uploading program')");
                     /* write everything to a Arduino sketch */
-                    writeProgram(arduinoLibraries + arduinoSetupAndLoop + arduinoLoopContent + arduinoEnd);
+                    writeProgram(ARDUINO_LIBRARIES + ARDUINO_SETUP_LOOP + arduinoLoopContent + ARDUINO_END);
                     /* compile the Arduino sketch */
-                    executeCommand("/system/bin/sh /sdcard/sumorobot/make.sh");
+                    executeCommand("/system/bin/sh " + EXTERNAL_STORAGE.getAbsolutePath() + "/sumodroid/make.sh");
                     /* get the compiled program */
-                    byte[] program = readProgram();
+                    byte[] program = readProgram("main.hex");
                     /* connect to the Arduino */
                     connectBluetooth();
                     /* upload the program */
                     uploadProgram(program);
-                    /* disconnect bluetooth */
-                    disconnectBluetooth();
+                    /* when disconnect after uploading */
+                    if (disconnectAfterUpload) {
+                        /* disconnect bluetooth */
+                        disconnectBluetooth();
+                    } else {
+                        webView.sendJavascript("app.querySensorValues()");
+                    }
+                    /* notify frontend to stop showing activity */
+                    //webView.sendJavascript("app.stopShowingActivity()");
                 }
             }).start();
-            callbackContext.success("programming Arduino");
+            Log.d(TAG, "uplaoding program");
+            callbackContext.success("Uploading program");
             return true;
-        } else if (action.equals("cancel")) {
+        } else if (action.equals("sendCommands")) {
+            final String commands = args.getString(0);
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        /* send the commands to the Sumorobot */
+                        bluetoothOutputStream.write(commands.getBytes());
+                        /* receive sensor values from the Sumorobot */
+                        int index = 0;
+                        int[] sensorValues = new int[] {0, 0, 0, 0, 0};
+                        while (true) {
+                            char value = (char) bluetoothInputStream.read();
+                            if (value == '[') {
+                                continue;
+                            } else if (value == ']') {
+                                break;
+                            } else if (value == ',') {
+                                index++;
+                            } else {
+                                sensorValues[index] = Integer.parseInt(String.valueOf(value)) + sensorValues[index] * 10;
+                            }
+                        }
+                        Log.d(TAG, "received sensor values from sumorobot: " + Arrays.toString(sensorValues));
+                        webView.sendJavascript("app.receiveSensorValues(" + Arrays.toString(sensorValues) + ")");
+                    } catch (Exception e) {
+                        Log.d(TAG, "sending commands error: " + e.getMessage());
+                    }
+                }
+            }).start();
+            Log.d(TAG, "sending commands to sumorobot");
+            callbackContext.success();
+            return true;
+        } else if (action.equals("cancelUploadingProgram")) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -459,35 +523,58 @@ public class Compiler extends CordovaPlugin {
                     disconnectBluetooth();
                 }
             }).start();
-            callbackContext.success("disconnecting bluetooth");
+            callbackContext.success("Uploading program canceled");
             return true;
-        } else if (action.equals("download")) {
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    /* download busybox */
-                    //downloadFile("https://andavr.googlecode.com/files/busybox", "/sdcard/sumorobot/busybox");
-                    /* execute install */
-                    //executeCommand("/system/bin/sh /sdcard/sumorobot/unpack.sh");
-                }
-            }).start();
-            callbackContext.success("downloading compiler");
+        } else if (action.equals("startSumorobotDiscovery")) {
+            /* notify frontend to start showing activity */
+            //webView.sendJavascript("app.startShowingActivity('Discovering sumorobots')");
+            /* start to search for bluetooth devices */
+            startBluetoothDiscovery();
+            callbackContext.success();
             return true;
-        } else if (action.equals("search")) {
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    /* start to search for bluetooth devices */
-                    startBluetoothDiscovery();
-                }
-            }).start();
-            callbackContext.success("discovering bluetooth devices");
-            return true;
-        } else if (action.equals("select")) {
+        } else if (action.equals("selectSumorobot")) {
+            /* when no sumorobots were discovered yet */
+            if (bluetoothDevices.size() == 0) {
+                callbackContext.success("No sumorobots discovered yet");
+                return true;
+            }
             int selectedSumorobotIndex = args.getInt(0);
-            sumorobotAddress = btDevices.get(selectedSumorobotIndex).getAddress();
-            Log.d(TAG, "selected sumorobot: " + btDevices.get(selectedSumorobotIndex).getName());
-            callbackContext.success("selected sumorobot");
+            /* get the selected sumorobot's bluetooth address */
+            sumorobotAddress = bluetoothDevices.get(selectedSumorobotIndex).getAddress();
+            Log.d(TAG, "selected sumorobot: " + bluetoothDevices.get(selectedSumorobotIndex).getName());
+            callbackContext.success();
+            return true;
+        } else if (action.equals("extractCompiler")) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    /* notify frontend to start showing activity */
+                    webView.sendJavascript("app.startShowingActivity('Extracting compiler')");
+                    /* extract the compiler */
+                    String external = EXTERNAL_STORAGE.getAbsolutePath();
+                    executeCommand(external + "/sumodroid/busybox tar -xzvf " + external + "/sumodroid/compiler.tar.gz -C " + external + "/sumodroid/");
+                    /* remove the compiler tarball */
+                    executeCommand(external + "/sumodroid/busybox rm " + external + "/sumodroid/compiler.tar.gz");
+                    /* notify frontend to stop showing activity */
+                    webView.sendJavascript("app.stopShowingActivity()");
+                    /* start sumorobot discovery */
+                    webView.sendJavascript("app.startSumorobotDiscovery()");
+                }
+            }).start();
+            Log.d(TAG, "extracting compiler");
+            callbackContext.success();
+            return true;
+        } else if (action.equals("createFolder")) {
+            final String folderName = args.getString(0);
+            /* create a folder on the external storage */
+            File folder = new File(EXTERNAL_STORAGE, folderName);
+            if (!folder.exists()) {
+                folder.mkdir();
+                Log.d(TAG, "created " + folderName + " folder");
+            } else {
+                Log.d(TAG, "folder " + folderName + " already exists");
+            }
+            callbackContext.success();
             return true;
         }
         callbackContext.error("unknown action: " + action);
