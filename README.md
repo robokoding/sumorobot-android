@@ -1,6 +1,10 @@
 sumodroid
 =========
 
+this is a very experimental project, just here to give you an idea that this is possible :)
+until now I believe there are many projects in android app store that implement this kind of functionality
+my main aim of this was to make an application that does not require rooting the phone and allowes re programming of an Arduino without changing it's code, just using the Arduinos default bootloader
+
 android app to program the sumorobots with blockly
 this can be used also for basis to program Arduino over Bluetooth
 the aim of this project was to program any Arduino over Bluetooth without changing it's code
@@ -13,9 +17,10 @@ https://github.com/robokoding/arduino-bluetooth-shield-pcb
 installing
 ----------
 phonegap run android
+you can find the compiler stuff I used here https://owncloud.koodur.com/index.php/s/eXATW3Rli8zsoP2
 
 credits ^_^
 -----------
 http://phonegap.com/ <br/>
 https://code.google.com/p/andavr/
-
+https://developers.google.com/blockly/
